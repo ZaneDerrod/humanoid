@@ -1,0 +1,25 @@
+[project]
+name = "humanoid-ai"
+version = "0.1.0"
+description = "PPO training for Gymnasium Humanoid-v4"
+requires-python = ">=3.9,<3.12"
+license = "MIT"
+dependencies = [
+    "gymnasium[mujoco]==0.29.1",
+    "torch>=2.4.1",
+    "numpy>=1.24.4",
+    "tyro==0.5.10",
+    "tensorboard>=2.10.0",
+    "moviepy>=1.0.3",
+]
+
+[project.optional-dependencies]
+tracking = ["wandb>=0.13.11"]
+video = ["moviepy>=1.0.3", "pygame>=2.1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
