@@ -12,7 +12,8 @@ import torch.nn as nn
 import torch.optim as optim
 import tyro
 from torch.distributions.normal import Normal
-from torch.utils.tensorboard import SummaryWriter
+
+from utils import make_env, layer_init, make_writer, SCALAR_KEYS
 
 
 @dataclass
@@ -33,12 +34,13 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
+    resume_path: Optional[str] = None
+    """Path to a .pt checkpoint file to resume training from"""
 
     # Algorithm specific arguments
     env_id: str = "Humanoid-v4"
     """the id of the environment"""
-    #total_timesteps: int = 8000000
-    total_timesteps: int = 100000
+    total_timesteps: int = 8000000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -80,31 +82,6 @@ class Args:
     """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
-
-
-def make_env(env_id, idx, capture_video, run_name, gamma):
-    def thunk():
-        if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        else:
-            env = gym.make(env_id)
-        env = gym.wrappers.FlattenObservation(env)  # deal with dm_control's Dict observation space
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
-        env = gym.wrappers.NormalizeObservation(env)
-        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
-        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
-        return env
-
-    return thunk
-
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
 
 
 class Agent(nn.Module):
@@ -152,6 +129,8 @@ if __name__ == "__main__":
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    if args.resume_path is not None:
+        run_name += "_resumed"
     if args.track:
         import wandb
 
@@ -164,11 +143,7 @@ if __name__ == "__main__":
             monitor_gym=True,
             save_code=True,
         )
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
+    writer = make_writer(run_name, args)
 
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
@@ -185,6 +160,9 @@ if __name__ == "__main__":
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
     agent = Agent(envs, args.rpo_alpha).to(device)
+    if args.resume_path is not None:
+        agent.load_state_dict(torch.load(args.resume_path, map_location=device))
+        print(f"Resumed from checkpoint: {args.resume_path}")
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
@@ -203,7 +181,8 @@ if __name__ == "__main__":
     next_done = torch.zeros(args.num_envs).to(device)
     num_updates = args.total_timesteps // args.batch_size
 
-    for update in range(1, num_updates + 1):
+    try:
+      for update in range(1, num_updates + 1):
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
             frac = 1.0 - (update - 1.0) / num_updates
@@ -329,6 +308,23 @@ if __name__ == "__main__":
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+
+        # Periodic checkpoint every 50 updates
+        if update % 50 == 0:
+            os.makedirs(f"runs/{run_name}", exist_ok=True)
+            torch.save(agent.state_dict(), f"runs/{run_name}/agent_checkpoint_{global_step}.pt")
+            print(f"Checkpoint saved at step {global_step}")
+
+    except KeyboardInterrupt:
+      print("\nTraining interrupted! Saving current weights...")
+      os.makedirs(f"runs/{run_name}", exist_ok=True)
+      torch.save(agent.state_dict(), f"runs/{run_name}/agent_interrupted_{global_step}.pt")
+      print(f"Model saved to runs/{run_name}/agent_interrupted_{global_step}.pt")
+
+    # Save final model
+    os.makedirs(f"runs/{run_name}", exist_ok=True)
+    torch.save(agent.state_dict(), f"runs/{run_name}/agent_final.pt")
+    print(f"Final model saved to runs/{run_name}/agent_final.pt")
 
     envs.close()
     writer.close()
