@@ -40,7 +40,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "Humanoid-v4"
     """the id of the environment"""
-    total_timesteps: int = 3_000_000
+    total_timesteps: int = 8_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""

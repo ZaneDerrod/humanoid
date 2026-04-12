@@ -19,7 +19,7 @@ def main():
     parser.add_argument("--dry_run", action="store_true", help="Print commands without executing")
     parser.add_argument("--algorithms", type=str, default=None, help="Comma-separated subset, e.g. 'sac,tqc'")
     parser.add_argument("--seed", type=int, default=1, help="Seed passed to all child scripts")
-    parser.add_argument("--total_timesteps", type=int, default=3_000_000, help="Total timesteps per algorithm")
+    parser.add_argument("--total_timesteps", type=int, default=8_000_000, help="Total timesteps per algorithm")
     args = parser.parse_args()
 
     if args.algorithms:

@@ -8,7 +8,7 @@ dependencies = [
     "gymnasium[mujoco]==0.29.1",
     "torch>=2.4.1",
     "numpy>=1.24.4",
-    "tyro==0.5.10",
+    "tyro>=0.9.0",
     "tensorboard>=2.10.0",
     "moviepy>=1.0.3",
     "matplotlib>=3.7.0",

@@ -35,7 +35,27 @@ def rolling_mean(values, window):
     return np.convolve(values, kernel, mode="valid")
 
 
-def load_runs(runs_dir):
+def truncate_run(run, max_steps):
+    """Truncate all scalar data in a run to only include steps <= max_steps."""
+    for tag in list(run["scalars"].keys()):
+        steps = run["scalars"][tag]["steps"]
+        values = run["scalars"][tag]["values"]
+        wt = run["wall_times"].get(tag, [])
+        # find cutoff index
+        cutoff = 0
+        for i, s in enumerate(steps):
+            if s <= max_steps:
+                cutoff = i + 1
+            else:
+                break
+        run["scalars"][tag]["steps"] = steps[:cutoff]
+        run["scalars"][tag]["values"] = values[:cutoff]
+        if tag in run["wall_times"]:
+            run["wall_times"][tag] = wt[:cutoff]
+    return run
+
+
+def load_runs(runs_dir, max_steps=None):
     runs = []
     for entry in sorted(os.listdir(runs_dir)):
         run_path = os.path.join(runs_dir, entry)
@@ -56,13 +76,16 @@ def load_runs(runs_dir):
             events = ea.Scalars(tag)
             scalars[tag] = {"steps": [e.step for e in events], "values": [e.value for e in events]}
             wall_times[tag] = [e.wall_time for e in events]
-        runs.append(dict(
+        run = dict(
             name=entry,
             algo=algo,
             scalars=scalars,
             wall_times=wall_times,
             path=run_path,
-        ))
+        )
+        if max_steps is not None:
+            run = truncate_run(run, max_steps)
+        runs.append(run)
     return runs
 
 
@@ -71,9 +94,10 @@ def main():
     parser.add_argument("--runs_dir", type=str, default="runs/")
     parser.add_argument("--smoothing_window", type=int, default=20)
     parser.add_argument("--output_path", type=str, default="runs/comparison_dashboard.png")
+    parser.add_argument("--max_steps", type=int, default=None, help="Truncate all runs to this many steps for fair comparison")
     args = parser.parse_args()
 
-    runs = load_runs(args.runs_dir)
+    runs = load_runs(args.runs_dir, max_steps=args.max_steps)
     if not runs:
         print("No runs found. Exiting.")
         return
